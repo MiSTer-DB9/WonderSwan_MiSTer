@@ -22,6 +22,8 @@ entity IRQ is
       IRQ_VBlankTmr        : in  std_logic;
       IRQ_VBlank           : in  std_logic;
       IRQ_HBlankTmr        : in  std_logic;
+      IRQ_SerialSend       : in  std_logic;
+      IRQ_SerialReceive    : in  std_logic;
       
       RegBus_Din           : in  std_logic_vector(BUS_buswidth-1 downto 0);
       RegBus_Adr           : in  std_logic_vector(BUS_busadr-1 downto 0);
@@ -95,6 +97,8 @@ begin
          elsif (ce = '1') then
          
             -- set
+            if (IRQ_SerialSend    = '1' and INT_ENABLE(0) = '1') then INT_STATUS(0) <= '1'; end if;
+            if (IRQ_SerialReceive = '1' and INT_ENABLE(3) = '1') then INT_STATUS(3) <= '1'; end if;
             if (IRQ_LineComp  = '1' and INT_ENABLE(4) = '1') then INT_STATUS(4) <= '1'; end if;
             if (IRQ_VBlankTmr = '1' and INT_ENABLE(5) = '1') then INT_STATUS(5) <= '1'; end if;
             if (IRQ_VBlank    = '1' and INT_ENABLE(6) = '1') then INT_STATUS(6) <= '1'; end if;
@@ -111,7 +115,9 @@ begin
             
             -- clear
             if (INT_ACK_written = '1') then
+               if (RegBus_Din(0) = '1') then INT_STATUS(0) <= '0'; end if;
                if (RegBus_Din(1) = '1') then INT_STATUS(1) <= '0'; end if;
+               if (RegBus_Din(3) = '1') then INT_STATUS(3) <= '0'; end if;
                if (RegBus_Din(4) = '1') then INT_STATUS(4) <= '0'; end if;
                if (RegBus_Din(5) = '1') then INT_STATUS(5) <= '0'; end if;
                if (RegBus_Din(6) = '1') then INT_STATUS(6) <= '0'; end if;

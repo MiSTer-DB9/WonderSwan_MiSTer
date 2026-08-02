@@ -179,9 +179,20 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign VGA_F1 = 0;
-assign USER_OUT = '1;
+wire ws_serial_tx;
+wire link_cable = status[47];
+wire serial_route_snac = status[48];
+wire ws_serial_rx = !link_cable ? 1'b0 :
+                    serial_route_snac ? USER_IN[2] : ~UART_RXD;
 
-assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+// WonderSwan link cable SNAC route on the User port:
+//   USER 2 = receive from WonderSwan, USER 1 = transmit to WonderSwan.
+assign USER_OUT = {5'b11111, (link_cable && serial_route_snac) ? ws_serial_tx : 1'b1, 1'b1};
+
+// The HPS UART uses conventional idle-high UART polarity, so invert the
+// WonderSwan EXT-port signal at the Internal route boundary.
+assign UART_TXD = (link_cable && !serial_route_snac) ? ~ws_serial_tx : 1'b1;
+assign {UART_RTS, UART_DTR} = 0;
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
@@ -207,7 +218,7 @@ assign AUDIO_MIX = status[8:7];
 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"WonderSwan;SS3E000000:100000;",
+	"WonderSwan;SS3E000000:100000,UART9600:38400:192000;",
 	"FS1,WSCWS PC2,Load ROM;",
 	"-;",
 	"O[40:39],System,Auto,WonderSwan,SwanColor,PocketChallengeV2;",
@@ -244,6 +255,8 @@ localparam CONF_STR = {
 	"P2,Miscellaneous;",
 	"P2-;",
 	"P2O[9],CPU Turbo,Off,On;",
+	"P2O[47],Serial Port,Off,On;",
+	"d1P2O[48],Serial Route,Internal,SNAC;",
 	"P2O[26],Pause when OSD is open,Off,On;",
 	"P2O[27],Rewind Capture,Off,On;",
 	"-;",
@@ -331,7 +344,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.ioctl_index(filetype),
 
 	.status(status),
-	.status_menumask(cart_ready),
+	.status_menumask({14'd0, link_cable, cart_ready}),
 	.status_in({status[63:39], ss_slot, status[36:30], 2'b00, status[27:0]}),
 	.status_set(statusUpdate),
 
@@ -553,6 +566,11 @@ SwanTop SwanTop (
 	.KeyStart         (joystick_0[6]),
 	.KeyA             (joystick_0[4]),
 	.KeyB             (joystick_0[5]),
+
+	// EXT-port serial link
+	.link_enabled     (link_cable),
+	.serial_rx        (ws_serial_rx),
+	.serial_tx        (ws_serial_tx),
 	
 	// RTC
 	.RTC_timestampNew(RTC_time[32]),

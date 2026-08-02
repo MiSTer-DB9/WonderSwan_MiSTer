@@ -45,6 +45,7 @@ entity cpu is
       RegBus_Adr        : out std_logic_vector(BUS_busadr-1 downto 0) := (others => '0');
       RegBus_wren       : out std_logic := '0';
       RegBus_rden       : out std_logic := '0';
+      RegBus_word       : out std_logic := '0';
       RegBus_Dout       : in  std_logic_vector(BUS_buswidth-1 downto 0);
          
       -- savestates        
@@ -510,6 +511,7 @@ begin
             prefetchAllow  <= '1';
             RegBus_wren    <= '0';
             RegBus_rden    <= '0';
+            RegBus_word    <= '0';
          end if;
          
          --if (testpcsum(63) = '1' and testcmd(31) = '1') then
@@ -574,6 +576,7 @@ begin
             
             RegBus_wren     <= '0';
             RegBus_rden     <= '0';
+            RegBus_word     <= '0';
             
          elsif (ce_4x = '1') then
          
@@ -2332,6 +2335,9 @@ begin
                            
                         when OP_OPOUT =>
                            memFirst <= '0';
+                           if (opsize = 2) then
+                              RegBus_word <= '1';
+                           end if;
                            if (opsize = 1 or memFirst = '1') then
                               RegBus_Din   <= std_logic_vector(source2Val(7 downto 0));
                               RegBus_Adr   <= std_logic_vector(source1Val(7 downto 0));
