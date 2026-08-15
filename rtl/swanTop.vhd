@@ -72,6 +72,11 @@ entity SwanTop is
       KeyStart                   : in  std_logic;
       KeyA                       : in  std_logic;
       KeyB                       : in  std_logic;
+
+      -- EXT-port serial link
+      link_enabled               : in  std_logic;
+      serial_rx                  : in  std_logic;
+      serial_tx                  : out std_logic;
       
       -- RTC
       RTC_timestampNew           : in  std_logic;                     -- new current timestamp from system
@@ -133,6 +138,7 @@ architecture arch of SwanTop is
    signal RegBus_Adr             : std_logic_vector(BUS_busadr-1 downto 0) := (others => '0');
    signal RegBus_wren            : std_logic;
    signal RegBus_rden            : std_logic;
+   signal RegBus_word            : std_logic;
    signal RegBus_rst             : std_logic;
    signal RegBus_Dout            : std_logic_vector(BUS_buswidth-1 downto 0);
    signal RegBus_Dout_mapped     : std_logic_vector(BUS_buswidth-1 downto 0);
@@ -142,6 +148,7 @@ architecture arch of SwanTop is
    signal CPU_RegBus_Adr         : std_logic_vector(BUS_busadr-1 downto 0);
    signal CPU_RegBus_wren        : std_logic;
    signal CPU_RegBus_rden        : std_logic;
+   signal CPU_RegBus_word        : std_logic;
    
    type t_reg_wired_or is array(0 to 7) of std_logic_vector(7 downto 0);
    signal reg_wired_or : t_reg_wired_or;
@@ -188,6 +195,13 @@ architecture arch of SwanTop is
    signal IRQ_VBlankTmr          : std_logic;
    signal IRQ_VBlank             : std_logic;
    signal IRQ_HBlankTmr          : std_logic;
+   signal IRQ_SerialSend         : std_logic;
+   signal IRQ_SerialReceive      : std_logic;
+
+   -- serial
+   signal serial_active          : std_logic;
+   signal serial_link_active     : std_logic;
+   signal cpu_turbo              : std_logic;
    
    -- GPU
    signal GPU_addr               : std_logic_vector(15 downto 0);
@@ -214,7 +228,7 @@ architecture arch of SwanTop is
    signal system_idle            : std_logic;
    signal savestate_slow         : std_logic;
    
-   type t_ss_wired_or is array(0 to 5) of std_logic_vector(63 downto 0);
+   type t_ss_wired_or is array(0 to 6) of std_logic_vector(63 downto 0);
    signal ss_wired_or : t_ss_wired_or;
    
    signal savestate_savestate    : std_logic; 
@@ -322,7 +336,7 @@ begin
                      ce_counter <= (others => '0');
                   end if;
                   if (ce_counter = 1 or ce_counter = 4 or ce_counter = 7 or ce_counter = 10) then
-                     if (fastforward = '1' and savestate_slow = '0' and rewind_active = '0' and cpuCanSpeedup = '1') then
+                     if (fastforward = '1' and serial_link_active = '0' and savestate_slow = '0' and rewind_active = '0' and cpuCanSpeedup = '1') then
                         clockState <= FASTFORWARDMODE;
                      end if;
                   end if;
@@ -337,7 +351,7 @@ begin
                   end if;
 
                when FASTFORWARDMODE =>
-                  if (fastforward = '0' or savestate_slow = '1' or rewind_active = '1' or cpuCanSpeedup = '0' or EXTRAM_read = '1' or EXTRAM_write = '1') then
+                  if (fastforward = '0' or serial_link_active = '1' or savestate_slow = '1' or rewind_active = '1' or cpuCanSpeedup = '0' or EXTRAM_read = '1' or EXTRAM_write = '1') then
                      clockState <= NORMAL;
                      if (ce_counter >= 2) then
                         ce_counter <= ce_counter - 1;
@@ -404,21 +418,36 @@ begin
    RegBus_Adr  <= SSMEM_Addr(7 downto 0)      when sleep_savestate = '1' else CPU_RegBus_Adr;
    RegBus_wren <= SSMEM_WrEn(0)               when sleep_savestate = '1' else CPU_RegBus_wren;
    RegBus_rden <= '0'                         when sleep_savestate = '1' else CPU_RegBus_rden;
+   RegBus_word <= '0'                         when sleep_savestate = '1' else CPU_RegBus_word;
    
    SSMEM_ReadData_REG <= RegBus_Dout;
    
-   idummyregs : entity work.dummyregs
+   iserial : entity work.ws_serial
    port map
    (
-      clk          => clk,
-      ce           => ce,
-      reset        => reset,
-                                 
-      RegBus_Din   => RegBus_Din,
-      RegBus_Adr   => RegBus_Adr,
-      RegBus_wren  => RegBus_wren,
-      RegBus_rst   => RegBus_rst,
-      RegBus_Dout  => reg_wired_or(0)
+      clk               => clk,
+      ce                => ce,
+      reset             => reset,
+
+      serial_rx         => serial_rx,
+      serial_tx         => serial_tx,
+      active            => serial_active,
+
+      IRQ_SerialSend    => IRQ_SerialSend,
+      IRQ_SerialReceive => IRQ_SerialReceive,
+
+      RegBus_Din        => RegBus_Din,
+      RegBus_Adr        => RegBus_Adr,
+      RegBus_wren       => RegBus_wren,
+      RegBus_rden       => RegBus_rden,
+      RegBus_word       => RegBus_word,
+      RegBus_Dout       => reg_wired_or(0),
+
+      SSBUS_Din         => SSBUS_Din,
+      SSBUS_Adr         => SSBUS_Adr,
+      SSBUS_wren        => SSBUS_wren,
+      SSBUS_rst         => SSBUS_rst,
+      SSBUS_Dout        => ss_wired_or(6)
    );
    
    -- Memory Mux
@@ -506,7 +535,7 @@ begin
       ce                => ce_cpu,   
       ce_4x             => ce_4x,
       reset             => reset,
-      turbo             => turbo,
+      turbo             => cpu_turbo,
       --SLOWTIMING        => is_simu,
       SLOWTIMING        => '0',
    
@@ -539,6 +568,7 @@ begin
       RegBus_Adr        => CPU_RegBus_Adr, 
       RegBus_wren       => CPU_RegBus_wren,
       RegBus_rden       => CPU_RegBus_rden,
+      RegBus_word       => CPU_RegBus_word,
       RegBus_Dout       => RegBus_Dout_mapped,
 
       sleep_savestate   => sleep_savestate,
@@ -611,6 +641,8 @@ begin
       IRQ_VBlankTmr        => IRQ_VBlankTmr,
       IRQ_VBlank           => IRQ_VBlank   ,
       IRQ_HBlankTmr        => IRQ_HBlankTmr,
+      IRQ_SerialSend       => IRQ_SerialSend,
+      IRQ_SerialReceive    => IRQ_SerialReceive,
       
 -- synthesis translate_off
       export_irq           => export_irq,         
@@ -628,6 +660,10 @@ begin
       SSBUS_rst            => SSBUS_rst, 
       SSBUS_Dout           => ss_wired_or(3)
    );
+
+   -- A physical peer always runs at the native clock rate.
+   serial_link_active <= serial_active and link_enabled;
+   cpu_turbo          <= turbo and not serial_link_active;
    
    -- joypad
    ijoypad: entity work.joypad

@@ -10,7 +10,7 @@ set_global_assignment -name VHDL_FILE rtl/bus_savestates.vhd
 set_global_assignment -name VHDL_FILE rtl/reg_savestates.vhd
 set_global_assignment -name VHDL_FILE rtl/statemanager.vhd
 set_global_assignment -name VHDL_FILE rtl/savestates.vhd
-set_global_assignment -name VHDL_FILE rtl/dummyregs.vhd
+set_global_assignment -name VHDL_FILE rtl/serial.vhd
 set_global_assignment -name VHDL_FILE rtl/sound_module1.vhd
 set_global_assignment -name VHDL_FILE rtl/sound_module2.vhd
 set_global_assignment -name VHDL_FILE rtl/sound_module3.vhd

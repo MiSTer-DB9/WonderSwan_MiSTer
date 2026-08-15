@@ -183,6 +183,12 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign VGA_F1 = 0;
+wire ws_serial_tx;
+wire link_cable = status[47];
+wire serial_route_snac = status[48];
+wire ws_serial_rx = !link_cable ? 1'b0 :
+                    serial_route_snac ? USER_IN[2] : ~UART_RXD;
+
 // [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: USER_PP driver
 assign USER_PP = USER_PP_DRIVE;
 // [MiSTer-DB9 END]
@@ -191,7 +197,7 @@ assign USER_PP = USER_PP_DRIVE;
 wire         CLK_JOY = CLK_50M;                 // Assign clock between 40-50Mhz
 wire   [1:0] joy_type_raw    = status[127:126]; // 0=Off, 1=Saturn, 2=DB9MD, 3=DB15
 wire         joy_2p          = status[125];
-wire         snac_active     = 1'b0;
+wire         snac_active     = link_cable & serial_route_snac;
 wire         mt32_primary_active = 1'b0;
 wire   [1:0] joy_type        = snac_active ? 2'd0 : joy_type_raw;
 wire         joy_db9md_en    = (joy_type == 2'd2);
@@ -246,10 +252,18 @@ joydb joydb (
   .joy_raw         ( joy_raw_payload )
 );
 
-assign USER_OUT = USER_OUT_DRIVE;
 // [MiSTer-DB9 END]
 
-assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+// WonderSwan link cable SNAC route on the User port:
+//   USER 2 = receive from WonderSwan, USER 1 = transmit to WonderSwan.
+// [MiSTer-DB9 BEGIN] - link-cable SNAC preempts the joydb wrapper on USER_IO
+assign USER_OUT = snac_active ? {5'b11111, ws_serial_tx, 1'b1} : USER_OUT_DRIVE;
+// [MiSTer-DB9 END]
+
+// The HPS UART uses conventional idle-high UART polarity, so invert the
+// WonderSwan EXT-port signal at the Internal route boundary.
+assign UART_TXD = (link_cable && !serial_route_snac) ? ~ws_serial_tx : 1'b1;
+assign {UART_RTS, UART_DTR} = 0;
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
@@ -275,7 +289,7 @@ assign AUDIO_MIX = status[8:7];
 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"WonderSwan;SS3E000000:100000;",
+	"WonderSwan;SS3E000000:100000,UART9600:38400:192000;",
 	"FS1,WSCWS PC2,Load ROM;",
 	"-;",
 	"O[40:39],System,Auto,WonderSwan,SwanColor,PocketChallengeV2;",
@@ -312,6 +326,8 @@ localparam CONF_STR = {
 	"P2,Miscellaneous;",
 	"P2-;",
 	"P2O[9],CPU Turbo,Off,On;",
+	"P2O[47],Serial Port,Off,On;",
+	"d1P2O[48],Serial Route,Internal,SNAC;",
 	"P2O[26],Pause when OSD is open,Off,On;",
 	"P2O[27],Rewind Capture,Off,On;",
 	"-;",
@@ -410,7 +426,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.ioctl_index(filetype),
 
 	.status(status),
-	.status_menumask(cart_ready),
+	.status_menumask({14'd0, link_cable, cart_ready}),
 	// [MiSTer-DB9 BEGIN] - preserve status[127:39] (joy_type at [127:126], joy_2p at [125]) across status_set
 	.status_in({status[127:39], ss_slot, status[36:30], 2'b00, status[27:0]}),
 	// [MiSTer-DB9 END]
@@ -645,6 +661,11 @@ SwanTop SwanTop (
 	.KeyStart         (joystick_0[6]),
 	.KeyA             (joystick_0[4]),
 	.KeyB             (joystick_0[5]),
+	
+	// EXT-port serial link
+	.link_enabled     (link_cable),
+	.serial_rx        (ws_serial_rx),
+	.serial_tx        (ws_serial_tx),
 	
 	// RTC
 	.RTC_timestampNew(RTC_time[32]),

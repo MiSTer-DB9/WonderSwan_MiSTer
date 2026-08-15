@@ -15,6 +15,7 @@ package pReg_savestates is
    constant REG_SAVESTATE_CPU4        : savestate_type := (  3,   31,      0,        1, x"00000000F0020000"); -- F_DS
    
    constant REG_SAVESTATE_IRQ         : savestate_type := (  5,    7,      0,        1, x"0000000000000000");
+   constant REG_SAVESTATE_UART        : savestate_type := (  6,   63,      0,        1, x"0000000000000000");
    
    constant REG_SAVESTATE_GPU         : savestate_type := (  7,   15,      0,        1, x"0000000000009EFF");
    
